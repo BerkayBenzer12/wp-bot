@@ -42,7 +42,11 @@ app.post('/webhook', async (req, res) => {
     let reply = '';
 
     if (mediaUrl && mediaType && mediaType.startsWith('image/')) {
-      const imageResponse = await fetch(mediaUrl);
+      const imageResponse = await fetch(mediaUrl, {
+        headers: {
+          'Authorization': 'Basic ' + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64')
+        }
+      });
       const imageBuffer = await imageResponse.arrayBuffer();
       const base64Image = Buffer.from(imageBuffer).toString('base64');
 

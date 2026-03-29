@@ -1,2 +1,4 @@
 .env
 *.json
+git add .
+git commit -m "gitignore eklendi"
