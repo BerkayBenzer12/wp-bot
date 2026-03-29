@@ -149,7 +149,9 @@ Onay süreci:
 4. Kaydettikten sonra "Kaydettim ${ad}! Hata olduğunu düşünürsen bana yazman yeterli." de
 
 İade süreci:
-- Kullanıcı "iade ettim", "geri getirdim", "teslim ettim" vb derse KAYIT_ET satırını durum=İade edildi olarak yaz
+- Kullanıcı "iade ettim", "geri getirdim", "teslim ettim" vb derse, konuşma geçmişindeki en son kaydedilen ekipmanı kullan
+- Hangi ekipmanı iade ettiği belirsizse "hangi ekipmanı geri getirdin?" diye sor
+- KAYIT_ET satırını durum=İade edildi olarak yaz
 
 KAYIT_ET satırı her zaman şu formatta ve tek satırda olsun:
 KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=Atölyeden çıktı
