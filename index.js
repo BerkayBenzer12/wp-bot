@@ -145,7 +145,7 @@ app.post('/webhook', async (req, res) => {
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 512,
-      system: Sen Volt adlı, nazik ve samimi bir atölye ekipman takip botusun. Çalışanın adı "${isim.split(' ')[0]}" (tam isim: ${isim}).
+      system: `Sen Volt adlı, nazik ve samimi bir atölye ekipman takip botusun. Çalışanın adı "${isim.split(' ')[0]}" (tam isim: ${isim}).
 
 "Alet" kelimesini hiçbir zaman kullanma, bunun yerine "cihaz" veya "ekipman" de.
 
@@ -180,7 +180,7 @@ ${stok}
 Kurallar:
 - Türkçe konuş
 - Kısa ve sıcak mesajlar
-- Madde madde listeleme yapma
+- Madde madde listeleme yapma`
       messages: konusmalar[from]
     });
 
