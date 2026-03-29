@@ -19,7 +19,7 @@ const auth = new google.auth.GoogleAuth({
 
 const konusmalar = {};
 const calisanlar = {};
-const sonKayitlar = {};
+const isimBekleyenler = {};
 
 async function calisanKaydet(numara, isim) {
   const client = await auth.getClient();
@@ -42,7 +42,7 @@ async function calisanlariYukle() {
       range: 'Çalışanlar!A:B'
     });
     const rows = result.data.values || [];
-    rows.forEach(r => { if (r[0] && r[1]) calisanlar[r[0]] = r[1]; });
+    rows.forEach(r => { if (r[0] && r[1] && r[0] !== 'Numara') calisanlar[r[0]] = r[1]; });
     console.log('Çalışanlar yüklendi:', calisanlar);
   } catch (e) {
     console.log('Çalışanlar sayfası henüz yok.');
@@ -59,6 +59,35 @@ async function tabloyaEkle(isim, cihaz, marka, model, durum) {
     valueInputOption: 'USER_ENTERED',
     resource: { values: [[tarih, isim, cihaz, marka, model, durum]] }
   });
+}
+
+async function kisininAktifEkipmanlari(isim) {
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'Kayıtlar!A:F'
+    });
+    const rows = result.data.values || [];
+    if (rows.length <= 1) return [];
+    
+    const kisininKayitlari = rows.slice(1).filter(r => r[1] === isim);
+    
+    const aktifler = {};
+    kisininKayitlari.forEach(r => {
+      const anahtar = r[2];
+      if (r[5] === 'Atölyeden çıktı') {
+        aktifler[anahtar] = { cihaz: r[2], marka: r[3], model: r[4] };
+      } else if (r[5] === 'İade edildi') {
+        delete aktifler[anahtar];
+      }
+    });
+    
+    return Object.values(aktifler);
+  } catch (e) {
+    return [];
+  }
 }
 
 async function stokuGetir() {
@@ -94,7 +123,7 @@ app.post('/webhook', async (req, res) => {
       delete isimBekleyenler[from];
       konusmalar[from] = [];
       const ad = isim.split(' ')[0];
-      reply = `Hoş geldin ${ad}! Atölyeden çıkardığın ekipmanın fotoğrafını gönderebilir veya adını yazabilirsin, ben kaydederim. ⚡`;
+      reply = `Hoş geldin ${ad}! ⚡ Atölyeden çıkardığın ekipmanın fotoğrafını gönderebilir veya adını yazabilirsin, ben kaydederim.`;
       await twilioClient.messages.create({ from: process.env.TWILIO_WHATSAPP_NUMBER, to: from, body: reply });
       return res.status(200).send('OK');
     }
@@ -130,6 +159,10 @@ app.post('/webhook', async (req, res) => {
     if (konusmalar[from].length > 20) konusmalar[from] = konusmalar[from].slice(-20);
 
     const stok = await stokuGetir();
+    const aktifEkipmanlar = await kisininAktifEkipmanlari(isim);
+    const aktifListesi = aktifEkipmanlar.length > 0
+      ? aktifEkipmanlar.map(e => `• ${e.cihaz} (${e.marka})`).join('\n')
+      : 'Şu an üzerinde kayıtlı ekipman yok.';
 
     const systemPrompt = `Sen Volt adlı, nazik ve samimi bir atölye ekipman takip botusun. Çalışanın adı "${ad}" (tam isim: ${isim}).
 
@@ -142,18 +175,19 @@ Görevin:
 - Hangi ekipmanın kimde olduğunu takip etmek
 - Elektrik, elektronik, mekanik ve teknik sorulara yardımcı olmak
 
-Onay süreci:
+Çıkış süreci:
 1. Fotoğraf veya yazıyla ekipman gelince "görünüşe göre X, doğru mu?" diye sor
 2. Kullanıcı onaylarsa veya düzeltme yaparsa, marka ve model bilinmiyorsa "üzerinde bir marka veya seri numarası var mı?" diye sor
-3. Kullanıcı bilgi verince veya "yok" diyince KAYIT_ET satırını yaz ve kaydet, bir daha sorma
+3. Kullanıcı bilgi verince veya "yok" diyince KAYIT_ET satırını yaz
 4. Kaydettikten sonra "Kaydettim ${ad}! Hata olduğunu düşünürsen bana yazman yeterli." de
 
 İade süreci:
-- Kullanıcı "iade ettim", "geri getirdim", "teslim ettim" vb derse, konuşma geçmişindeki en son kaydedilen ekipmanı kullan
-- Hangi ekipmanı iade ettiği belirsizse "hangi ekipmanı geri getirdin?" diye sor
-- KAYIT_ET satırını durum=İade edildi olarak yaz
+- Kullanıcı iade ettiğini belirtince, üzerindeki aktif ekipman listesine bak
+- Listede birden fazla ekipman varsa hangisini iade ettiğini sor
+- Listede tek ekipman varsa direkt KAYIT_ET satırını yaz
+- Hangi ekipmanı iade ettiği belirsizse sor
 
-KAYIT_ET satırı her zaman şu formatta ve tek satırda olsun:
+KAYIT_ET satırı her zaman tek satırda olsun:
 KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=Atölyeden çıktı
 veya
 KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=İade edildi
@@ -164,9 +198,11 @@ Fotoğraf okurken:
 
 Tamamen kişisel konularda: "Bu konuda yardımcı olamam ama teknik konularda buradayım!"
 
-Güncel kayıtlar:
+${ad} adlı çalışanın şu an üzerindeki ekipmanlar:
+${aktifListesi}
+
+Tüm kayıtlar:
 ${stok}
-${sonKayitlar[from] ? `Bu çalışanın son kaydı: ${sonKayitlar[from].cihaz} (${sonKayitlar[from].marka})` : ''}
 
 Kurallar:
 - Türkçe konuş
@@ -190,8 +226,7 @@ Kurallar:
       if (kayitKismi) {
         try {
           await tabloyaEkle(isim, kayitKismi[1].trim(), kayitKismi[2].trim(), kayitKismi[3].trim(), kayitKismi[4].trim());
-          sonKayitlar[from] = { cihaz: kayitKismi[1].trim(), marka: kayitKismi[2].trim(), model: kayitKismi[3].trim() };
-          console.log('Sheets kaydedildi');
+          console.log('Sheets kaydedildi:', kayitKismi[1].trim(), kayitKismi[4].trim());
         } catch (sheetsHata) {
           console.error('Sheets hatasi:', sheetsHata.message);
         }
