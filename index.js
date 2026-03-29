@@ -17,47 +17,67 @@ const auth = new google.auth.GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 
-async function tabloyaEkle(tarih, gonderen, alet, marka, model, aciklama, fotografLink) {
+const bekleyenOnaylar = {};
+
+const calisanlar = {
+  'whatsapp:+905425808521': 'Berkay'
+};
+
+async function tabloyaEkle(tarih, isim, alet, marka, model) {
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'A:G',
+    range: 'A:F',
     valueInputOption: 'USER_ENTERED',
     resource: {
-      values: [[tarih, gonderen, alet, marka, model, aciklama, fotografLink]]
+      values: [[tarih, isim, alet, marka, model, '']]
     }
   });
 }
 
 app.post('/webhook', async (req, res) => {
   const from = req.body.From;
-  const body = req.body.Body || '';
+  const body = (req.body.Body || '').trim().toLowerCase();
   const mediaUrl = req.body.MediaUrl0;
   const mediaType = req.body.MediaContentType0;
+  const isim = calisanlar[from] || 'Arkadaş';
 
   console.log('Mesaj geldi:', from, body, mediaUrl);
 
   try {
     let reply = '';
 
-    if (mediaUrl && mediaType && mediaType.startsWith('image/')) {
+    if (bekleyenOnaylar[from]) {
+      const bekleyen = bekleyenOnaylar[from];
+      if (body === 'evet' || body === 'e') {
+        const tarih = new Date().toLocaleString('tr-TR');
+        try {
+          await tabloyaEkle(tarih, isim, bekleyen.alet, bekleyen.marka, bekleyen.model);
+          console.log('Sheets kaydedildi');
+        } catch (sheetsHata) {
+          console.error('Sheets hatasi:', sheetsHata.message);
+        }
+        delete bekleyenOnaylar[from];
+        reply = `✅ Tamam ${isim}, stoka eklendi.`;
+      } else if (body === 'hayır' || body === 'hayir' || body === 'h') {
+        delete bekleyenOnaylar[from];
+        reply = `❌ İptal edildi ${isim}.`;
+      } else {
+        reply = `${isim}, lütfen sadece *Evet* veya *Hayır* yaz.`;
+      }
+
+    } else if (mediaUrl && mediaType && mediaType.startsWith('image/')) {
       const authHeader = 'Basic ' + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
-      
       const imageResponse = await fetch(mediaUrl, {
         headers: { 'Authorization': authHeader }
       });
-      
-      const contentType = imageResponse.headers.get('content-type') || mediaType;
       const imageBuffer = await imageResponse.arrayBuffer();
       const base64Image = Buffer.from(imageBuffer).toString('base64');
 
-      console.log('Fotograf boyutu:', imageBuffer.byteLength, 'bytes');
-      console.log('Content type:', contentType);
-
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
+        max_tokens: 512,
         messages: [{
           role: 'user',
           content: [
@@ -71,13 +91,11 @@ app.post('/webhook', async (req, res) => {
             },
             {
               type: 'text',
-              text: `Bu fotoğraftaki aleti veya test cihazını tanımla. 
-              Cevabını şu formatta ver:
-              ALET: (alet adı)
-              MARKA: (marka adı, bilinmiyorsa "Bilinmiyor")
-              MODEL: (model adı, bilinmiyorsa "Bilinmiyor")
-              AÇIKLAMA: (ne işe yarar, 1-2 cümle)
-              Eğer fotoğrafta alet yoksa sadece "ALET DEĞİL" yaz.`
+              text: `Bu fotoğraftaki aleti tanımla. Sadece şu formatta cevap ver, başka hiçbir şey yazma:
+ALET: (alet adı)
+MARKA: (marka, bilinmiyorsa Bilinmiyor)
+MODEL: (model, bilinmiyorsa Bilinmiyor)
+Fotoğrafta alet yoksa sadece ALET DEĞİL yaz.`
             }
           ]
         }]
@@ -87,27 +105,22 @@ app.post('/webhook', async (req, res) => {
       console.log('Claude cevabi:', cevap);
 
       if (cevap.includes('ALET DEĞİL')) {
-        reply = '❌ Fotoğrafta alet veya cihaz tespit edemedim. Lütfen tekrar çekin.';
+        reply = `${isim}, fotoğrafta alet göremedim. Tekrar çeker misin?`;
       } else {
-        const alet = (cevap.match(/ALET:\s*(.+)/) || [])[1] || 'Bilinmiyor';
-        const marka = (cevap.match(/MARKA:\s*(.+)/) || [])[1] || 'Bilinmiyor';
-        const model = (cevap.match(/MODEL:\s*(.+)/) || [])[1] || 'Bilinmiyor';
-        const aciklama = (cevap.match(/AÇIKLAMA:\s*(.+)/) || [])[1] || '';
-        const tarih = new Date().toLocaleString('tr-TR');
+        const alet = (cevap.match(/ALET:\s*(.+)/) || [])[1]?.trim() || 'Bilinmiyor';
+        const marka = (cevap.match(/MARKA:\s*(.+)/) || [])[1]?.trim() || 'Bilinmiyor';
+        const model = (cevap.match(/MODEL:\s*(.+)/) || [])[1]?.trim() || 'Bilinmiyor';
 
-        try {
-  await tabloyaEkle(tarih, from, alet, marka, model, aciklama, mediaUrl);
-  console.log('Sheets kaydedildi');
-} catch (sheetsHata) {
-  console.error('Sheets hatasi:', sheetsHata.message);
-}
+        bekleyenOnaylar[from] = { alet, marka, model };
 
-        reply = `✅ Alet tanındı ve stoka eklendi!\n\n🔧 *${alet}*\n🏷️ Marka: ${marka}\n📋 Model: ${model}\n📝 ${aciklama}`;
+        reply = `${isim}, şunu ekleyeyim mi?\n\n🔧 ${alet}\n🏷️ ${marka} - ${model}\n\n*Evet* veya *Hayır*`;
       }
+
     } else {
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
+        max_tokens: 256,
+        system: 'Sen bir şirket içi alet ve ekipman takip botusun. Sadece alet, cihaz, stok ve ekipmanla ilgili sorulara kısa cevap ver. Özel veya şirketle alakasız sorulara sadece "Bu konuda yardımcı olamam." de. Türkçe konuş. Kısa ve net cevaplar ver.',
         messages: [{ role: 'user', content: body }]
       });
       reply = response.content[0].text;
@@ -134,3 +147,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Bot ${PORT} portunda çalışıyor`);
 });
+
