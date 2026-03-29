@@ -17,7 +17,6 @@ const auth = new google.auth.GoogleAuth({
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 
-const konusmalar = {};
 const calisanlar = {};
 const isimBekleyenler = {};
 
@@ -49,6 +48,40 @@ async function calisanlariYukle() {
   }
 }
 
+async function konusmalariYukle(numara) {
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'Konusmalar!A:D'
+    });
+    const rows = result.data.values || [];
+    const kisininKonusmalari = rows.filter(r => r[0] === numara && r[1] && r[2]);
+    const sonEllisi = kisininKonusmalari.slice(-50);
+    return sonEllisi.map(r => ({ role: r[1], content: r[2] }));
+  } catch (e) {
+    return [];
+  }
+}
+
+async function konusmayiKaydet(numara, rol, icerik) {
+  try {
+    const tarih = new Date().toLocaleString('tr-TR');
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const icerikStr = typeof icerik === 'string' ? icerik : JSON.stringify(icerik);
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'Konusmalar!A:D',
+      valueInputOption: 'USER_ENTERED',
+      resource: { values: [[numara, rol, icerikStr, tarih]] }
+    });
+  } catch (e) {
+    console.error('Konusma kaydedilemedi:', e.message);
+  }
+}
+
 async function tabloyaEkle(isim, cihaz, marka, model, durum) {
   const tarih = new Date().toLocaleString('tr-TR');
   const client = await auth.getClient();
@@ -71,9 +104,7 @@ async function kisininAktifEkipmanlari(isim) {
     });
     const rows = result.data.values || [];
     if (rows.length <= 1) return [];
-    
     const kisininKayitlari = rows.slice(1).filter(r => r[1] === isim);
-    
     const aktifler = {};
     kisininKayitlari.forEach(r => {
       const anahtar = r[2];
@@ -83,7 +114,6 @@ async function kisininAktifEkipmanlari(isim) {
         delete aktifler[anahtar];
       }
     });
-    
     return Object.values(aktifler);
   } catch (e) {
     return [];
@@ -121,9 +151,9 @@ app.post('/webhook', async (req, res) => {
       const isim = body.trim();
       await calisanKaydet(from, isim);
       delete isimBekleyenler[from];
-      konusmalar[from] = [];
       const ad = isim.split(' ')[0];
       reply = `Hoş geldin ${ad}! ⚡ Atölyeden çıkardığın ekipmanın fotoğrafını gönderebilir veya adını yazabilirsin, ben kaydederim.`;
+      await konusmayiKaydet(from, 'assistant', reply);
       await twilioClient.messages.create({ from: process.env.TWILIO_WHATSAPP_NUMBER, to: from, body: reply });
       return res.status(200).send('OK');
     }
@@ -138,25 +168,28 @@ app.post('/webhook', async (req, res) => {
     const isim = calisanlar[from];
     const ad = isim.split(' ')[0];
 
-    if (!konusmalar[from]) konusmalar[from] = [];
+    const gecmisKonusmalar = await konusmalariYukle(from);
 
-    let mesajIcerigi = [];
-
+    let yeniMesaj;
     if (mediaUrl && mediaType && mediaType.startsWith('image/')) {
       const authHeader = 'Basic ' + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
       const imageResponse = await fetch(mediaUrl, { headers: { 'Authorization': authHeader } });
       const imageBuffer = await imageResponse.arrayBuffer();
       const base64Image = Buffer.from(imageBuffer).toString('base64');
-      mesajIcerigi = [
-        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image } },
-        { type: 'text', text: body || 'Bu ekipmanı atölyeden çıkarmak istiyorum.' }
-      ];
+      yeniMesaj = {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image } },
+          { type: 'text', text: body || 'Bu ekipmanı atölyeden çıkarmak istiyorum.' }
+        ]
+      };
     } else {
-      mesajIcerigi = [{ type: 'text', text: body }];
+      yeniMesaj = { role: 'user', content: body };
     }
 
-    konusmalar[from].push({ role: 'user', content: mesajIcerigi });
-    if (konusmalar[from].length > 20) konusmalar[from] = konusmalar[from].slice(-20);
+    await konusmayiKaydet(from, 'user', typeof yeniMesaj.content === 'string' ? yeniMesaj.content : body);
+
+    const tumMesajlar = [...gecmisKonusmalar, yeniMesaj];
 
     const stok = await stokuGetir();
     const aktifEkipmanlar = await kisininAktifEkipmanlari(isim);
@@ -185,7 +218,7 @@ Görevin:
 - Kullanıcı iade ettiğini belirtince, üzerindeki aktif ekipman listesine bak
 - Listede birden fazla ekipman varsa hangisini iade ettiğini sor
 - Listede tek ekipman varsa direkt KAYIT_ET satırını yaz
-- Hangi ekipmanı iade ettiği belirsizse sor
+- KAYIT_ET satırını durum=İade edildi olarak yaz
 
 KAYIT_ET satırı her zaman tek satırda olsun:
 KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=Atölyeden çıktı
@@ -213,13 +246,13 @@ Kurallar:
       model: 'claude-sonnet-4-20250514',
       max_tokens: 512,
       system: systemPrompt,
-      messages: konusmalar[from]
+      messages: tumMesajlar
     });
 
     reply = response.content[0].text;
     console.log('Claude cevabi:', reply);
 
-    konusmalar[from].push({ role: 'assistant', content: reply });
+    await konusmayiKaydet(from, 'assistant', reply);
 
     if (reply.includes('KAYIT_ET:')) {
       const kayitKismi = reply.match(/KAYIT_ET:\s*alet=([^,]+),\s*marka=([^,]+),\s*model=([^,\n]+),\s*durum=([^\n]+)/);
@@ -244,6 +277,14 @@ Kurallar:
     res.status(200).send('OK');
   } catch (error) {
     console.error('Hata:', error);
+    try {
+      const ad = calisanlar[from] ? calisanlar[from].split(' ')[0] : '';
+      await twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_NUMBER,
+        to: from,
+        body: `Üzgünüm ${ad}, şu an küçük bir teknik aksaklık yaşıyorum. Lütfen biraz sonra tekrar dene. 🙏`
+      });
+    } catch (e) {}
     res.status(500).send('Hata olustu');
   }
 });
