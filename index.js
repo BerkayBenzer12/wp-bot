@@ -116,15 +116,35 @@ Fotoğrafta alet yoksa sadece ALET DEĞİL yaz.`
         reply = `${isim}, şunu ekleyeyim mi?\n\n🔧 ${alet}\n🏷️ ${marka} - ${model}\n\n*Evet* veya *Hayır*`;
       }
 
-    } else {
+  } else {
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 256,
-        system: 'Sen bir şirket içi alet ve ekipman takip botusun. Sadece alet, cihaz, stok ve ekipmanla ilgili sorulara kısa cevap ver. Özel veya şirketle alakasız sorulara sadece "Bu konuda yardımcı olamam." de. Türkçe konuş. Kısa ve net cevaplar ver.',
+        system: `Sen bir şirket içi alet ve ekipman takip botusun. 
+Eğer kullanıcı bir alet veya cihaz adı yazıyorsa, şu formatta cevap ver:
+ALET: (alet adı)
+MARKA: Bilinmiyor
+MODEL: Bilinmiyor
+
+Eğer şirketle alakasız bir soru soruyorsa sadece "Bu konuda yardımcı olamam." de.
+Başka hiçbir şey yazma. Türkçe konuş.`,
         messages: [{ role: 'user', content: body }]
       });
-      reply = response.content[0].text;
+
+      const cevap = response.content[0].text;
+
+      if (cevap.includes('ALET:')) {
+        const alet = (cevap.match(/ALET:\s*(.+)/) || [])[1]?.trim() || body;
+        const marka = (cevap.match(/MARKA:\s*(.+)/) || [])[1]?.trim() || 'Bilinmiyor';
+        const model = (cevap.match(/MODEL:\s*(.+)/) || [])[1]?.trim() || 'Bilinmiyor';
+
+        bekleyenOnaylar[from] = { alet, marka, model };
+        reply = `${isim}, şunu ekleyeyim mi?\n\n🔧 ${alet}\n🏷️ ${marka} - ${model}\n\n*Evet* veya *Hayır*`;
+      } else {
+        reply = 'Bu konuda yardımcı olamam.';
+      }
     }
+
 
     await twilioClient.messages.create({
       from: process.env.TWILIO_WHATSAPP_NUMBER,
