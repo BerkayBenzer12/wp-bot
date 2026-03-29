@@ -18,37 +18,63 @@ const auth = new google.auth.GoogleAuth({
 });
 
 const konusmalar = {};
+const calisanlar = {};
+const isimBekleyenler = {};
 
-const calisanlar = {
-  'whatsapp:+905425808521': 'Berkay'
-};
+async function calisanKaydet(numara, isim) {
+  const client = await auth.getClient();
+  const sheets = google.sheets({ version: 'v4', auth: client });
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: 'Çalışanlar!A:B',
+    valueInputOption: 'USER_ENTERED',
+    resource: { values: [[numara, isim]] }
+  });
+  calisanlar[numara] = isim;
+}
 
-async function tabloyaEkle(isim, alet, marka, model) {
+async function calisanlariYukle() {
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'Çalışanlar!A:B'
+    });
+    const rows = result.data.values || [];
+    rows.forEach(r => { if (r[0] && r[1]) calisanlar[r[0]] = r[1]; });
+    console.log('Çalışanlar yüklendi:', calisanlar);
+  } catch (e) {
+    console.log('Çalışanlar sayfası henüz yok.');
+  }
+}
+
+async function tabloyaEkle(isim, alet, marka, model, durum) {
   const tarih = new Date().toLocaleString('tr-TR');
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'A:E',
+    range: 'Kayıtlar!A:F',
     valueInputOption: 'USER_ENTERED',
-    resource: {
-      values: [[tarih, isim, alet, marka, model]]
-    }
+    resource: { values: [[tarih, isim, alet, marka, model, durum]] }
   });
-  return tarih;
 }
 
 async function stokuGetir() {
-  const client = await auth.getClient();
-  const sheets = google.sheets({ version: 'v4', auth: client });
-  const result = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.SPREADSHEET_ID,
-    range: 'A:E'
-  });
-  const rows = result.data.values || [];
-  if (rows.length <= 1) return 'Stokta henüz kayıt yok.';
-  const kayitlar = rows.slice(1).map(r => `• ${r[2]} (${r[3]}) — ${r[1]}, ${r[0]}`).join('\n');
-  return kayitlar;
+  try {
+    const client = await auth.getClient();
+    const sheets = google.sheets({ version: 'v4', auth: client });
+    const result = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: 'Kayıtlar!A:F'
+    });
+    const rows = result.data.values || [];
+    if (rows.length <= 1) return 'Henüz kayıt yok.';
+    return rows.slice(1).map(r => `• ${r[2]} (${r[3]}) — ${r[1]}, ${r[5]}, ${r[0]}`).join('\n');
+  } catch (e) {
+    return 'Kayıtlar alınamadı.';
+  }
 }
 
 app.post('/webhook', async (req, res) => {
@@ -56,97 +82,119 @@ app.post('/webhook', async (req, res) => {
   const body = req.body.Body || '';
   const mediaUrl = req.body.MediaUrl0;
   const mediaType = req.body.MediaContentType0;
-  const isim = calisanlar[from] || 'Arkadaş';
 
   console.log('Mesaj geldi:', from, body, mediaUrl);
 
-  if (!konusmalar[from]) konusmalar[from] = [];
-
   try {
+    let reply = '';
+
+    // İsim bekleniyor mu?
+    if (isimBekleyenler[from]) {
+      const isim = body.trim();
+      await calisanKaydet(from, isim);
+      delete isimBekleyenler[from];
+      konusmalar[from] = [];
+      reply = `Hoş geldin ${isim}! 😊 Atölyeden çıkardığın aletlerin fotoğrafını gönderebilir veya adını yazabilirsin, ben kaydederim.`;
+
+      await twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_NUMBER,
+        to: from,
+        body: reply
+      });
+      return res.status(200).send('OK');
+    }
+
+    // Yeni çalışan mı?
+    if (!calisanlar[from]) {
+      isimBekleyenler[from] = true;
+      reply = `Merhaba! 👋 Ben atölye alet takip botuyum. Seni daha önce görmedim, adın ve soyadın nedir? Bunu sormamın sebebi kayıtlara doğru isimle geçebilmek. 😊`;
+
+      await twilioClient.messages.create({
+        from: process.env.TWILIO_WHATSAPP_NUMBER,
+        to: from,
+        body: reply
+      });
+      return res.status(200).send('OK');
+    }
+
+    const isim = calisanlar[from];
+
+    if (!konusmalar[from]) konusmalar[from] = [];
+
     let mesajIcerigi = [];
 
     if (mediaUrl && mediaType && mediaType.startsWith('image/')) {
       const authHeader = 'Basic ' + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
-      const imageResponse = await fetch(mediaUrl, {
-        headers: { 'Authorization': authHeader }
-      });
+      const imageResponse = await fetch(mediaUrl, { headers: { 'Authorization': authHeader } });
       const imageBuffer = await imageResponse.arrayBuffer();
       const base64Image = Buffer.from(imageBuffer).toString('base64');
 
       mesajIcerigi = [
-        {
-          type: 'image',
-          source: { type: 'base64', media_type: 'image/jpeg', data: base64Image }
-        },
-        {
-          type: 'text',
-          text: body || 'Bu fotoğraftaki aleti kaydetmek istiyorum.'
-        }
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image } },
+        { type: 'text', text: body || 'Bu aleti atölyeden çıkarmak istiyorum.' }
       ];
     } else {
       mesajIcerigi = [{ type: 'text', text: body }];
     }
 
     konusmalar[from].push({ role: 'user', content: mesajIcerigi });
-
-    if (konusmalar[from].length > 20) {
-      konusmalar[from] = konusmalar[from].slice(-20);
-    }
+    if (konusmalar[from].length > 20) konusmalar[from] = konusmalar[from].slice(-20);
 
     const stok = await stokuGetir();
 
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 512,
-      system: `Sen "${isim}" isimli çalışana yardım eden nazik ve samimi bir şirket içi alet takip botusun.
+      system: `Sen "${isim}" isimli çalışana yardım eden nazik ve samimi bir atölye alet takip botusun.
 
 Görevin:
-- Fotoğraf veya yazıyla gelen aletleri stoka eklemek
-- Stok durumu hakkında bilgi vermek
-- Şirketle ilgili sorulara yardımcı olmak
+- Çalışan atölyeden alet veya cihaz çıkardığında onay alıp kaydetmek
+- Alet iade edildiğinde kaydı güncellemek
+- Hangi aletin kimde olduğunu takip etmek
+- Elektrik, elektronik, mekanik ve teknik sorulara yardımcı olmak
 
-Stoka eklemek için kullanıcıdan onay al. Onay gelince şu formatta yanıt ver:
-KAYIT_ET: alet=XXX, marka=XXX, model=XXX
+Onay aldıktan sonra şu formatta yanıt ver (başka hiçbir şey ekleme):
+KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=Atölyeden çıktı
 
-Stokla alakasız kişisel sorulara nazikçe "Bu konuda yardımcı olamam ama alet ve ekipman konularında buradayım!" de.
+İade için:
+KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=İade edildi
 
-Güncel stok listesi:
+Tamamen kişisel konularda: "Bu konuda yardımcı olamam ama teknik konularda buradayım!"
+
+Güncel kayıtlar:
 ${stok}
 
 Kurallar:
-- Her zaman Türkçe konuş
-- Kısa ve sıcak mesajlar yaz
+- Türkçe konuş
+- Kısa ve sıcak mesajlar
 - ${isim} ismiyle hitap et
 - Madde madde listeleme yapma`,
       messages: konusmalar[from]
     });
 
-    const reply = response.content[0].text;
+    reply = response.content[0].text;
     console.log('Claude cevabi:', reply);
 
     konusmalar[from].push({ role: 'assistant', content: reply });
 
     if (reply.includes('KAYIT_ET:')) {
-      const kayitKismi = reply.match(/KAYIT_ET:\s*alet=([^,]+),\s*marka=([^,]+),\s*model=(.+)/);
+      const kayitKismi = reply.match(/KAYIT_ET:\s*alet=([^,]+),\s*marka=([^,]+),\s*model=([^,]+),\s*durum=(.+)/);
       if (kayitKismi) {
-        const alet = kayitKismi[1].trim();
-        const marka = kayitKismi[2].trim();
-        const model = kayitKismi[3].trim();
         try {
-          await tabloyaEkle(isim, alet, marka, model);
-          console.log('Sheets kaydedildi:', alet);
+          await tabloyaEkle(isim, kayitKismi[1].trim(), kayitKismi[2].trim(), kayitKismi[3].trim(), kayitKismi[4].trim());
+          console.log('Sheets kaydedildi');
         } catch (sheetsHata) {
           console.error('Sheets hatasi:', sheetsHata.message);
         }
       }
     }
 
-    const temizReply = reply.replace(/KAYIT_ET:[^\n]*/g, '').trim();
+    reply = reply.replace(/KAYIT_ET:[^\n]*/g, '').trim();
 
     await twilioClient.messages.create({
       from: process.env.TWILIO_WHATSAPP_NUMBER,
       to: from,
-      body: temizReply
+      body: reply
     });
 
     res.status(200).send('OK');
@@ -159,6 +207,8 @@ Kurallar:
 app.get('/', (req, res) => {
   res.send('WP Bot çalışıyor! 🤖');
 });
+
+calisanlariYukle();
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
