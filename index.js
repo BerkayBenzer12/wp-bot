@@ -178,7 +178,7 @@ Görevin:
 Çıkış süreci:
 1. Fotoğraf veya yazıyla ekipman gelince "görünüşe göre X, doğru mu?" diye sor
 2. Kullanıcı onaylarsa veya düzeltme yaparsa, marka ve model bilinmiyorsa "üzerinde bir marka veya seri numarası var mı?" diye sor
-3. Kullanıcı bilgi verince veya "yok" diyince KAYIT_ET satırını yaz
+3. Kullanıcı bilgi verince VEYA "yok", "bilmiyorum", "yok öyle bir şey" gibi bir şey diyince hemen KAYIT_ET satırını yaz, başka soru sorma
 4. Kaydettikten sonra "Kaydettim ${ad}! Hata olduğunu düşünürsen bana yazman yeterli." de
 
 İade süreci:
