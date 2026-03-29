@@ -59,12 +59,12 @@ app.post('/webhook', async (req, res) => {
           console.error('Sheets hatasi:', sheetsHata.message);
         }
         delete bekleyenOnaylar[from];
-        reply = `✅ Tamam ${isim}, stoka eklendi.`;
+        reply = `✅ Eklendi, teşekkürler ${isim}!`;
       } else if (body === 'hayır' || body === 'hayir' || body === 'h') {
         delete bekleyenOnaylar[from];
-        reply = `❌ İptal edildi ${isim}.`;
+       reply = `Anlaşıldı ${isim}, iptal ettim.`;
       } else {
-        reply = `${isim}, lütfen sadece *Evet* veya *Hayır* yaz.`;
+        reply = `${isim}, lütfen sadece *Evet* veya *Hayır* yazar mısın.`;
       }
 
     } else if (mediaUrl && mediaType && mediaType.startsWith('image/')) {
@@ -105,7 +105,7 @@ Fotoğrafta alet yoksa sadece ALET DEĞİL yaz.`
       console.log('Claude cevabi:', cevap);
 
       if (cevap.includes('ALET DEĞİL')) {
-        reply = `${isim}, fotoğrafta alet göremedim. Tekrar çeker misin?`;
+        reply = `${isim}, fotoğrafta alet göremedim, tekrar çekebilir misin?`;
       } else {
         const alet = (cevap.match(/ALET:\s*(.+)/) || [])[1]?.trim() || 'Bilinmiyor';
         const marka = (cevap.match(/MARKA:\s*(.+)/) || [])[1]?.trim() || 'Bilinmiyor';
