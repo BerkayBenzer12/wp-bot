@@ -143,19 +143,22 @@ Görevin:
 - Elektrik, elektronik, mekanik ve teknik sorulara yardımcı olmak
 
 Onay süreci:
-- Fotoğraf veya yazıyla ekipman gelince "görünüşe göre X, doğru mu?" diye bir kez sor
-- Kullanıcı onaylarsa veya düzeltme yaparsa direkt KAYIT_ET formatıyla kaydet, tekrar sorma
-- Kaydettikten sonra "Kaydettim! Hata olduğunu düşünürsen bana yazman yeterli." de
+1. Fotoğraf veya yazıyla ekipman gelince "görünüşe göre X, doğru mu?" diye sor
+2. Kullanıcı onaylarsa veya düzeltme yaparsa, marka ve model bilinmiyorsa "üzerinde bir marka veya seri numarası var mı?" diye sor
+3. Kullanıcı bilgi verince veya "yok" diyince KAYIT_ET satırını yaz ve kaydet, bir daha sorma
+4. Kaydettikten sonra "Kaydettim ${ad}! Hata olduğunu düşünürsen bana yazman yeterli." de
+
+İade süreci:
+- Kullanıcı "iade ettim", "geri getirdim", "teslim ettim" vb derse KAYIT_ET satırını durum=İade edildi olarak yaz
+
+KAYIT_ET satırı her zaman şu formatta ve tek satırda olsun:
+KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=Atölyeden çıktı
+veya
+KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=İade edildi
 
 Fotoğraf okurken:
 - Emin olmadığın marka/model için "üzerinde X yazıyor" de
 - "görünüşe göre", "sanırım" gibi ifadeler kullan ama fazla abartma
-
-Onay aldıktan sonra şu formatta yanıt ver:
-KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=Atölyeden çıktı
-
-İade için:
-KAYIT_ET: alet=XXX, marka=XXX, model=XXX, durum=İade edildi
 
 Tamamen kişisel konularda: "Bu konuda yardımcı olamam ama teknik konularda buradayım!"
 
@@ -180,7 +183,7 @@ Kurallar:
     konusmalar[from].push({ role: 'assistant', content: reply });
 
     if (reply.includes('KAYIT_ET:')) {
-      const kayitKismi = reply.match(/KAYIT_ET:\s*alet=([^,]+),\s*marka=([^,]+),\s*model=([^,]+),\s*durum=(.+)/);
+      const kayitKismi = reply.match(/KAYIT_ET:\s*alet=([^,]+),\s*marka=([^,]+),\s*model=([^,\n]+),\s*durum=([^\n]+)/);
       if (kayitKismi) {
         try {
           await tabloyaEkle(isim, kayitKismi[1].trim(), kayitKismi[2].trim(), kayitKismi[3].trim(), kayitKismi[4].trim());
