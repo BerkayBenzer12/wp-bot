@@ -42,13 +42,18 @@ app.post('/webhook', async (req, res) => {
     let reply = '';
 
     if (mediaUrl && mediaType && mediaType.startsWith('image/')) {
+      const authHeader = 'Basic ' + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64');
+      
       const imageResponse = await fetch(mediaUrl, {
-        headers: {
-          'Authorization': 'Basic ' + Buffer.from(process.env.TWILIO_ACCOUNT_SID + ':' + process.env.TWILIO_AUTH_TOKEN).toString('base64')
-        }
+        headers: { 'Authorization': authHeader }
       });
+      
+      const contentType = imageResponse.headers.get('content-type') || mediaType;
       const imageBuffer = await imageResponse.arrayBuffer();
       const base64Image = Buffer.from(imageBuffer).toString('base64');
+
+      console.log('Fotograf boyutu:', imageBuffer.byteLength, 'bytes');
+      console.log('Content type:', contentType);
 
       const response = await anthropic.messages.create({
         model: 'claude-sonnet-4-20250514',
@@ -60,7 +65,7 @@ app.post('/webhook', async (req, res) => {
               type: 'image',
               source: {
                 type: 'base64',
-                media_type: mediaType,
+                media_type: 'image/jpeg',
                 data: base64Image
               }
             },
@@ -79,6 +84,7 @@ app.post('/webhook', async (req, res) => {
       });
 
       const cevap = response.content[0].text;
+      console.log('Claude cevabi:', cevap);
 
       if (cevap.includes('ALET DEĞİL')) {
         reply = '❌ Fotoğrafta alet veya cihaz tespit edemedim. Lütfen tekrar çekin.';
