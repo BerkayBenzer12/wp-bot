@@ -49,7 +49,7 @@ async function calisanlariYukle() {
   }
 }
 
-async function tabloyaEkle(isim, alet, marka, model, durum) {
+async function tabloyaEkle(isim, cihaz, marka, model, durum) {
   const tarih = new Date().toLocaleString('tr-TR');
   const client = await auth.getClient();
   const sheets = google.sheets({ version: 'v4', auth: client });
@@ -57,7 +57,7 @@ async function tabloyaEkle(isim, alet, marka, model, durum) {
     spreadsheetId: process.env.SPREADSHEET_ID,
     range: 'Kayıtlar!A:F',
     valueInputOption: 'USER_ENTERED',
-    resource: { values: [[tarih, isim, alet, marka, model, durum]] }
+    resource: { values: [[tarih, isim, cihaz, marka, model, durum]] }
   });
 }
 
@@ -88,36 +88,26 @@ app.post('/webhook', async (req, res) => {
   try {
     let reply = '';
 
-    // İsim bekleniyor mu?
     if (isimBekleyenler[from]) {
       const isim = body.trim();
       await calisanKaydet(from, isim);
       delete isimBekleyenler[from];
       konusmalar[from] = [];
-      reply = `Hoş geldin ${isim}! 😊 Atölyeden çıkardığın aletlerin fotoğrafını gönderebilir veya adını yazabilirsin, ben kaydederim.`;
-
-      await twilioClient.messages.create({
-        from: process.env.TWILIO_WHATSAPP_NUMBER,
-        to: from,
-        body: reply
-      });
+      const ad = isim.split(' ')[0];
+      reply = `Hoş geldin ${ad}! Atölyeden çıkardığın ekipmanın fotoğrafını gönderebilir veya adını yazabilirsin, ben kaydederim. ⚡`;
+      await twilioClient.messages.create({ from: process.env.TWILIO_WHATSAPP_NUMBER, to: from, body: reply });
       return res.status(200).send('OK');
     }
 
-    // Yeni çalışan mı?
     if (!calisanlar[from]) {
       isimBekleyenler[from] = true;
-      reply = `Merhaba! 👋 Ben Volt. Seni daha önce görmedim, adın ve soyadın nedir? Bunu sormamın sebebi kayıtlara doğru isimle geçebilmek. 😊`;
-
-      await twilioClient.messages.create({
-        from: process.env.TWILIO_WHATSAPP_NUMBER,
-        to: from,
-        body: reply
-      });
+      reply = `Merhaba! 👋 Ben Volt. Seni daha önce görmedim, adın ve soyadın nedir? Kayıtlara doğru isimle geçebilmek için soruyorum. 😊`;
+      await twilioClient.messages.create({ from: process.env.TWILIO_WHATSAPP_NUMBER, to: from, body: reply });
       return res.status(200).send('OK');
     }
 
     const isim = calisanlar[from];
+    const ad = isim.split(' ')[0];
 
     if (!konusmalar[from]) konusmalar[from] = [];
 
@@ -128,10 +118,9 @@ app.post('/webhook', async (req, res) => {
       const imageResponse = await fetch(mediaUrl, { headers: { 'Authorization': authHeader } });
       const imageBuffer = await imageResponse.arrayBuffer();
       const base64Image = Buffer.from(imageBuffer).toString('base64');
-
       mesajIcerigi = [
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64Image } },
-        { type: 'text', text: body || 'Bu aleti atölyeden çıkarmak istiyorum.' }
+        { type: 'text', text: body || 'Bu ekipmanı atölyeden çıkarmak istiyorum.' }
       ];
     } else {
       mesajIcerigi = [{ type: 'text', text: body }];
@@ -142,13 +131,9 @@ app.post('/webhook', async (req, res) => {
 
     const stok = await stokuGetir();
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 512,
-      system: `Sen Volt adlı, nazik ve samimi bir atölye ekipman takip botusun. Çalışanın adı "${isim.split(' ')[0]}" (tam isim: ${isim}).
+    const systemPrompt = `Sen Volt adlı, nazik ve samimi bir atölye ekipman takip botusun. Çalışanın adı "${ad}" (tam isim: ${isim}).
 
 "Alet" kelimesini hiçbir zaman kullanma, bunun yerine "cihaz" veya "ekipman" de.
-
 Konuşurken sadece ilk adını kullan. Tam ismi sadece kayıt sırasında kullan.
 
 Görevin:
@@ -180,7 +165,12 @@ ${stok}
 Kurallar:
 - Türkçe konuş
 - Kısa ve sıcak mesajlar
-- Madde madde listeleme yapma`
+- Madde madde listeleme yapma`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 512,
+      system: systemPrompt,
       messages: konusmalar[from]
     });
 
@@ -224,5 +214,5 @@ calisanlariYukle();
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`Bot ${PORT} portunda çalışıyor`);
+  console.log(`Volt ${PORT} portunda çalışıyor`);
 });
