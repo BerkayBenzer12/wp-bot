@@ -95,7 +95,12 @@ app.post('/webhook', async (req, res) => {
         const aciklama = (cevap.match(/AÇIKLAMA:\s*(.+)/) || [])[1] || '';
         const tarih = new Date().toLocaleString('tr-TR');
 
-        await tabloyaEkle(tarih, from, alet, marka, model, aciklama, mediaUrl);
+        try {
+  await tabloyaEkle(tarih, from, alet, marka, model, aciklama, mediaUrl);
+  console.log('Sheets kaydedildi');
+} catch (sheetsHata) {
+  console.error('Sheets hatasi:', sheetsHata.message);
+}
 
         reply = `✅ Alet tanındı ve stoka eklendi!\n\n🔧 *${alet}*\n🏷️ Marka: ${marka}\n📋 Model: ${model}\n📝 ${aciklama}`;
       }
