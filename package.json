@@ -13,10 +13,3 @@
     "googleapis": "^140.0.0"
   }
 }
-```
-
-**Ctrl+S** ile kaydet, sonra terminale şunu gir:
-```
-git add .
-git commit -m "dotenv eklendi"
-git push
