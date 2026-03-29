@@ -19,7 +19,7 @@ const auth = new google.auth.GoogleAuth({
 
 const konusmalar = {};
 const calisanlar = {};
-const isimBekleyenler = {};
+const sonKayitlar = {};
 
 async function calisanKaydet(numara, isim) {
   const client = await auth.getClient();
@@ -166,6 +166,7 @@ Tamamen kişisel konularda: "Bu konuda yardımcı olamam ama teknik konularda bu
 
 Güncel kayıtlar:
 ${stok}
+${sonKayitlar[from] ? `Bu çalışanın son kaydı: ${sonKayitlar[from].cihaz} (${sonKayitlar[from].marka})` : ''}
 
 Kurallar:
 - Türkçe konuş
@@ -189,6 +190,7 @@ Kurallar:
       if (kayitKismi) {
         try {
           await tabloyaEkle(isim, kayitKismi[1].trim(), kayitKismi[2].trim(), kayitKismi[3].trim(), kayitKismi[4].trim());
+          sonKayitlar[from] = { cihaz: kayitKismi[1].trim(), marka: kayitKismi[2].trim(), model: kayitKismi[3].trim() };
           console.log('Sheets kaydedildi');
         } catch (sheetsHata) {
           console.error('Sheets hatasi:', sheetsHata.message);
