@@ -107,7 +107,7 @@ app.post('/webhook', async (req, res) => {
     // Yeni çalışan mı?
     if (!calisanlar[from]) {
       isimBekleyenler[from] = true;
-      reply = `Merhaba! 👋 Ben atölye alet takip botuyum. Seni daha önce görmedim, adın ve soyadın nedir? Bunu sormamın sebebi kayıtlara doğru isimle geçebilmek. 😊`;
+      reply = `Merhaba! 👋 Ben Volt. Seni daha önce görmedim, adın ve soyadın nedir? Bunu sormamın sebebi kayıtlara doğru isimle geçebilmek. 😊`;
 
       await twilioClient.messages.create({
         from: process.env.TWILIO_WHATSAPP_NUMBER,
@@ -145,7 +145,7 @@ app.post('/webhook', async (req, res) => {
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 512,
-      system: `Sen "${isim}" isimli çalışana yardım eden nazik ve samimi bir atölye alet takip botusun.
+      system: `Sen Volt adlı, "${isim}" isimli çalışana yardım eden nazik ve samimi bir atölye alet takip botusun.
 
 Görevin:
 - Çalışan atölyeden alet veya cihaz çıkardığında onay alıp kaydetmek
@@ -205,7 +205,7 @@ Kurallar:
 });
 
 app.get('/', (req, res) => {
-  res.send('WP Bot çalışıyor! 🤖');
+  res.send('Volt çalışıyor! ⚡');
 });
 
 calisanlariYukle();
