@@ -2,3 +2,4 @@
 *.json
 git add .
 git commit -m "gitignore eklendi"
+node_modules/
